@@ -69,6 +69,27 @@ pid_t process_execute(const char* file_name) {
   return tid;
 }
 
+/*Function to split the file name into the file to be loaded 
+and its parameter and put them into argv with argc tokens*/
+static void tokenize(char* file_name, int* argc, char* argv[]) {
+  *argc = 1;
+  argv[0] = file_name;
+    
+  while(*file_name) {
+    
+    if (*file_name == ' ') {
+      *file_name = '\0';
+      file_name++;
+      argv[(*argc)++] = file_name;
+      continue;
+    }
+    
+    file_name++;
+  }
+  argv[*argc] = NULL;
+
+}
+
 /* A thread function that loads a user process and starts it
    running. */
 static void start_process(void* file_name_) {
@@ -77,6 +98,8 @@ static void start_process(void* file_name_) {
   struct intr_frame if_;
   bool success, pcb_success;
 
+
+  
   /* Allocate process control block */
   struct process* new_pcb = malloc(sizeof(struct process));
   success = pcb_success = new_pcb != NULL;
@@ -259,7 +282,7 @@ struct Elf32_Phdr {
 #define PF_W 2 /* Writable. */
 #define PF_R 4 /* Readable. */
 
-static bool setup_stack(void** esp);
+static bool setup_stack(void** esp, int argc, char* argv[]);
 static bool validate_segment(const struct Elf32_Phdr*, struct file*);
 static bool load_segment(struct file* file, off_t ofs, uint8_t* upage, uint32_t read_bytes,
                          uint32_t zero_bytes, bool writable);
@@ -347,8 +370,18 @@ bool load(const char* file_name, void (**eip)(void), void** esp) {
     }
   }
 
+  /* Split the string on spaces and create a list of arguments. 
+     This list of arguments will make up our argv and their count 
+     would indicate argc. */
+  int  size = strlen(file_name)+1;
+  char file_dup[128];
+  memcpy(file_dup, file_name, size);
+  int argc;
+  char* argv[128];
+  tokenize(file_dup, &argc, argv);
+
   /* Set up stack. */
-  if (!setup_stack(esp))
+  if (!setup_stack(esp, argc, argv))
     goto done;
 
   /* Start address. */
@@ -465,9 +498,10 @@ static bool load_segment(struct file* file, off_t ofs, uint8_t* upage, uint32_t 
 
 /* Create a minimal stack by mapping a zeroed page at the top of
    user virtual memory. */
-static bool setup_stack(void** esp) {
+static bool setup_stack(void** esp, int argc, char* argv[]) {
   uint8_t* kpage;
   bool success = false;
+  int index, offset;
 
   kpage = palloc_get_page(PAL_USER | PAL_ZERO);
   if (kpage != NULL) {
@@ -477,6 +511,30 @@ static bool setup_stack(void** esp) {
     else
       palloc_free_page(kpage);
   }
+
+  for(index = argc-1 ; index >= 0 ; index--) {
+    offset = strlen(argv[index])+1;
+    *esp -= offset;
+    memcpy(*esp, argv[index], offset);
+    
+    argv[index] = *esp;
+  }
+
+  /* Word-align the stack. */
+  offset = (argc+3) * sizeof(char*);
+  *esp = (void *)((unsigned int)(*esp-offset) & 0xfffffff0);
+
+  /*Push argv pointers on the stack*/
+  memcpy(*esp+8, argv, ((argc+1)*sizeof(char*)));
+
+  /*Push argv and argc*/
+  *(char***)(*esp+4) = *esp+8;
+  *(int*)*esp = argc;
+
+  /* Push a fake return address. */
+  *esp -= sizeof(void *);
+  *(void **)*esp = NULL;
+
   return success;
 }
 
