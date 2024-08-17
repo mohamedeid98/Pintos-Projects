@@ -17,6 +17,16 @@ typedef tid_t pid_t;
 typedef void (*pthread_fun)(void*);
 typedef void (*stub_fun)(pthread_fun, void*);
 
+/*Open file description data structure*/
+struct open_file {
+   int fd;                    /* Open file descriptor */
+   struct file* _file;        /* File description in the filesystem `file.c` */
+   struct list_elem _link;    /* To add the structure to a list of open files */
+};
+
+/*Max open files for a process*/
+#define MAX_OPEN_FILES 10
+
 /* The process control block for a given process. Since
    there can be multiple threads per process, we need a separate
    PCB from the TCB. All TCBs in a process will have a pointer
@@ -27,6 +37,11 @@ struct process {
   uint32_t* pagedir;          /* Page directory. */
   char process_name[16];      /* Name of the main thread */
   struct thread* main_thread; /* Pointer to main thread */
+
+  struct list open_files;     /*List for all process open files*/
+  int fd_count;               /*Number of open file descriptors, initially = 2 
+                                (STDIN_FILENO = 0, STDOUT_FILENO = 1, STDERR_FILENO = 2)*/
+  int max_open_files ;        /*Max allowed open files for a process*/
 };
 
 void userprog_init(void);

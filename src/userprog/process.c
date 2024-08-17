@@ -80,12 +80,15 @@ static void tokenize(char* file_name, int* argc, char* argv[]) {
     if (*file_name == ' ') {
       *file_name = '\0';
       file_name++;
+      while(*file_name == ' ') {
+        file_name++;
+      }
       argv[(*argc)++] = file_name;
       continue;
     }
-    
     file_name++;
   }
+
   argv[*argc] = NULL;
 
 }
@@ -114,6 +117,12 @@ static void start_process(void* file_name_) {
     // Continue initializing the PCB as normal
     t->pcb->main_thread = t;
     strlcpy(t->pcb->process_name, t->name, sizeof t->name);
+
+    /*Initialize the file description list*/
+    list_init(&t->pcb->open_files);
+    t->pcb->fd_count = 2;
+    t->pcb->max_open_files = MAX_OPEN_FILES;
+
   }
 
   /* Initialize interrupt frame and load executable. */
@@ -171,10 +180,22 @@ void process_exit(void) {
   struct thread* cur = thread_current();
   uint32_t* pd;
 
+
+  
   /* If this thread does not have a PCB, don't worry */
   if (cur->pcb == NULL) {
     thread_exit();
     NOT_REACHED();
+  }
+
+  /* Close all open files. */
+  struct open_file* temp_file;
+  struct list_elem* e ;
+  e = list_head(&cur->pcb->open_files);
+
+  while((e = list_next(e)) != list_end(&cur->pcb->open_files)) {
+          temp_file = list_entry(e, struct open_file, _link);
+          file_close(temp_file->_file);
   }
 
   /* Destroy the current process's page directory and switch back
@@ -305,10 +326,20 @@ bool load(const char* file_name, void (**eip)(void), void** esp) {
     goto done;
   process_activate();
 
+  /* Split the string on spaces and create a list of arguments. 
+    This list of arguments will make up our argv and their count 
+    would indicate argc. */
+  int  size = strlen(file_name)+1;
+  char file_dup[128];
+  memcpy(file_dup, file_name, size);
+  int argc;
+  char* argv[128];
+  tokenize(file_dup, &argc, argv);
+
   /* Open executable file. */
-  file = filesys_open(file_name);
+  file = filesys_open(argv[0]);
   if (file == NULL) {
-    printf("load: %s: open failed\n", file_name);
+    printf("load: %s: open failed\n", argv[0]);
     goto done;
   }
 
@@ -316,7 +347,7 @@ bool load(const char* file_name, void (**eip)(void), void** esp) {
   if (file_read(file, &ehdr, sizeof ehdr) != sizeof ehdr ||
       memcmp(ehdr.e_ident, "\177ELF\1\1\1", 7) || ehdr.e_type != 2 || ehdr.e_machine != 3 ||
       ehdr.e_version != 1 || ehdr.e_phentsize != sizeof(struct Elf32_Phdr) || ehdr.e_phnum > 1024) {
-    printf("load: %s: error loading executable\n", file_name);
+    printf("load: %s: error loading executable\n", argv[0]);
     goto done;
   }
 
@@ -370,15 +401,7 @@ bool load(const char* file_name, void (**eip)(void), void** esp) {
     }
   }
 
-  /* Split the string on spaces and create a list of arguments. 
-     This list of arguments will make up our argv and their count 
-     would indicate argc. */
-  int  size = strlen(file_name)+1;
-  char file_dup[128];
-  memcpy(file_dup, file_name, size);
-  int argc;
-  char* argv[128];
-  tokenize(file_dup, &argc, argv);
+
 
   /* Set up stack. */
   if (!setup_stack(esp, argc, argv))

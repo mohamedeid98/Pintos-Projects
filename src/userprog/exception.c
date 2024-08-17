@@ -78,7 +78,8 @@ static void kill(struct intr_frame* f) {
       printf("%s: dying due to interrupt %#04x (%s).\n", thread_name(), f->vec_no,
              intr_name(f->vec_no));
       intr_dump_frame(f);
-      process_exit();
+      //process_exit();
+      exit(-1);
       NOT_REACHED();
 
     case SEL_KCSEG:
@@ -135,6 +136,12 @@ static void page_fault(struct intr_frame* f) {
   write = (f->error_code & PF_W) != 0;
   user = (f->error_code & PF_U) != 0;
 
+  /* Handle kernel mode faults on user memory. */
+  if (!user) {
+  f->eax = 0xffffffff;                     /* Indicate a fault occurred. */
+  f->eip = (void (*) (void)) (f->eip + 4); /* Adjust EIP to skip the faulting instruction. */
+  return;
+  }
   /* To implement virtual memory, delete the rest of the function
      body, and replace it with code that brings in the page to
      which fault_addr refers. */

@@ -179,6 +179,8 @@ tid_t thread_create(const char* name, int priority, thread_func* function, void*
   struct switch_entry_frame* ef;
   struct switch_threads_frame* sf;
   tid_t tid;
+  char* fn_copy;
+  int i = 0;
 
   ASSERT(function != NULL);
 
@@ -187,8 +189,19 @@ tid_t thread_create(const char* name, int priority, thread_func* function, void*
   if (t == NULL)
     return TID_ERROR;
 
+    /* Make a copy of FILE_NAME.
+     to execlude any other parameters. */
+  fn_copy = palloc_get_page(0);
+  if (fn_copy == NULL)
+    return TID_ERROR;
+  strlcpy(fn_copy, name, PGSIZE);
+  while(fn_copy[i] != ' ') {
+    i++;
+  }
+  fn_copy[i] = '\0';
+
   /* Initialize thread. */
-  init_thread(t, name, priority);
+  init_thread(t, fn_copy, priority);
   tid = t->tid = allocate_tid();
 
   /* Stack frame for kernel_thread(). */
